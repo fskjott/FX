@@ -1,0 +1,112 @@
+import numpy as np
+import pandas as pd
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Function to simulate correlated Brownian motions
+def simulate_correlated_brownian_motion(num_paths, num_steps, correlation_matrix):
+    # Generate independent standard normal random variables
+    independent_randoms = np.random.normal(size=(num_steps, num_paths))
+    
+    # Perform Cholesky decomposition on the correlation matrix
+    cholesky_matrix = np.linalg.cholesky(correlation_matrix)
+    
+    # Generate correlated standard normal random variables
+    correlated_randoms = np.matmul(cholesky_matrix, independent_randoms.T).T
+    
+    # Compute the cumulative sum to get Brownian motions
+    brownian_motion = np.cumsum(correlated_randoms, axis=0)
+    
+    return brownian_motion
+
+# Parameters
+num_paths = 3
+num_steps = 100000
+correlation_matrix = np.array([[1.0, -0.99, 0.0],
+                               [-0.99, 1.0, 0.0],
+                               [0.0, 0.0, 1.0]])
+
+sim = simulate_correlated_brownian_motion(num_paths, num_steps, correlation_matrix)
+
+df = pd.DataFrame(sim, columns=["a", "b", "c"])
+
+# df.plot()
+# plt.title('Simulated Correlated Brownian Motions')
+# plt.xlabel('Time Steps')
+# plt.ylabel('Value')
+# plt.legend()
+# plt.show()
+
+# Analyse the output
+# df.diff().corr()
+# df.corr()
+
+# correlation of the diff's only really make sense if its norm distributed?
+# QQ-plot
+# stats.probplot(df["a"].diff(), plot=plt)
+# plt.show()
+
+# Risk vector
+start_position = [3, 2, 1]
+
+moves = np.matmul(start_position, df.diff().T)
+
+est_corr = df.diff().corr()
+est_cov = df.diff().cov()
+
+# This ought to be expected variance of portfolio w:  w cov wT
+np.matmul(np.array(start_position).T, np.matmul(est_cov, np.array(start_position)))
+moves.var()
+
+# linear reg
+dat = df
+dat["pl"] = moves
+dat = dat[1:]
+model = LinearRegression().fit(dat[["pl"]], dat[["a", "b", "c"]])
+model.coef_
+# This does not really make sense, as we would need to be able to trade the underlying process
+# instead of the asset?
+hedge = np.matmul(start_position, est_corr)
+
+hedge = list(zip([start_position, np.linalg.eig(est_corr)[0]]))
+
+# So using out estimates how do we contruct a portfolio?
+np.matmul(est_cov, np.matmul(start_position, est_cov))
+
+np.matmul(np.matmul(est_cov, est_cov), start_position)
+
+np.linalg.inv(est_cov)
+np.matmul(start_position, np.linalg.inv(est_cov))
+np.linalg.eig(est_corr)[0]
+
+np.matmul(np.linalg.eig(est_corr)[1], start_position)
+np.matmul(np.linalg.inv(np.linalg.eig(est_corr)[1]), start_position)
+# pca = PCA(n_components=3)
+# pca.fit(df)
+# print(pca.explained_variance_ratio_)
+# pos = pd.DataFrame([start_position], columns = df.columns)
+# pca.transform(pos)
+
+# np.linalg.inv()
+hedge = np.array([1, 0, 0])
+
+moves_hedge = np.matmul(hedge, df.diff()[1:].T)
+
+total = start_position - hedge
+
+moves_total = np.matmul(total, df.diff()[1:].T)
+
+moves.var()
+moves_hedge.var()
+moves_total.var()
+
+hedge_cost = np.sum(hedge)/np.sum(start_position)
+hedge_ratio = 1 - moves_total.var() / moves.var()
+
+hedge_cost
+hedge_ratio
