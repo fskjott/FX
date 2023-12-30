@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as stats
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LinearRegression
+import scipy
 
 # Set random seed for reproducibility
 np.random.seed(42)
@@ -24,6 +23,19 @@ def simulate_correlated_brownian_motion(num_paths, num_steps, correlation_matrix
     
     return brownian_motion
 
+def evaluate_hedge(start_position, hedge, data):
+    # new position
+    new_position = start_position + hedge
+    # pl var
+    start_var = np.matmul(start_position, data.diff()[1:].T).var()
+    hedge_var = np.matmul(hedge, data.diff()[1:].T).var()
+    new_var = np.matmul(new_position, data.diff()[1:].T).var()
+    # hedge costs
+    hedge_cost = np.sum(np.abs(hedge))/np.sum(np.abs(start_position))
+    hedge_ratio = 1 - new_var / start_var
+
+    return {'cost': hedge_cost, 'ratio': hedge_ratio}
+
 # Parameters
 num_paths = 3
 num_steps = 100000
@@ -34,6 +46,57 @@ correlation_matrix = np.array([[1.0, -0.99, 0.0],
 sim = simulate_correlated_brownian_motion(num_paths, num_steps, correlation_matrix)
 
 df = pd.DataFrame(sim, columns=["a", "b", "c"])
+
+# Risk vector
+start_position = [3, 2, 1]
+
+moves = np.matmul(start_position, df.diff().T)
+# old school estimation of cov (XTX)/(n-1)
+# np.matmul(df.diff()[1:].T, df.diff()[1:])/(len(df.diff()[1:])-1)
+
+est_corr = df.diff().corr()
+est_cov = df.diff().cov()
+
+# This ought to be expected variance of portfolio w:  w cov wT
+np.matmul(np.array(start_position).T, np.matmul(est_cov, np.array(start_position)))
+moves.var()
+
+# This does not really make sense, as we would need to be able to trade the underlying process
+# instead of the asset?
+hedge = np.matmul(start_position, est_corr)
+
+# So using out estimates how do we contruct a portfolio?
+np.matmul(est_cov, np.matmul(start_position, est_cov))
+
+corr_eig_val, corr_eig_vec = np.linalg.eig(est_corr)
+
+hedge = np.array([-1, 0, 0])
+
+evaluate_hedge(start_position=start_position, hedge=hedge, data=df)
+
+# imagine want to optimize portfolio similiar such that
+# minimize wT /sigma W + hedge_cost * scale
+# we need to choose a scale of hedge cost, as different volatility/costs produce very different behavior
+# eg if hedge cost = 1 but risk of portfolio is almost always lower than 1, then theres no point
+# in ever hedging, as cost of hedge is more than the expected move
+
+scale = .1
+start_guess = start_position # start by trying to hedge all
+
+def hedger_loss_func(hedge, start_position, covariance, scale):
+    position = start_position + hedge
+    return np.matmul(np.array(position).T, np.matmul(covariance, np.array(position))) + scale * np.sum(np.abs(hedge))
+
+hedger_loss_func(hedge, start_position, est_cov, scale)
+
+
+optimizer = scipy.optimize.minimize(hedger_loss_func, x0 = start_guess, args=(start_position, est_cov, scale))
+hedge = optimizer['x']
+loss = optimizer['fun']
+
+# Voila!
+evaluate_hedge(start_position, hedge, df)
+# PLOTS
 
 # df.plot()
 # plt.title('Simulated Correlated Brownian Motions')
@@ -50,63 +113,3 @@ df = pd.DataFrame(sim, columns=["a", "b", "c"])
 # QQ-plot
 # stats.probplot(df["a"].diff(), plot=plt)
 # plt.show()
-
-# Risk vector
-start_position = [3, 2, 1]
-
-moves = np.matmul(start_position, df.diff().T)
-
-est_corr = df.diff().corr()
-est_cov = df.diff().cov()
-
-# This ought to be expected variance of portfolio w:  w cov wT
-np.matmul(np.array(start_position).T, np.matmul(est_cov, np.array(start_position)))
-moves.var()
-
-# linear reg
-dat = df
-dat["pl"] = moves
-dat = dat[1:]
-model = LinearRegression().fit(dat[["pl"]], dat[["a", "b", "c"]])
-model.coef_
-# This does not really make sense, as we would need to be able to trade the underlying process
-# instead of the asset?
-hedge = np.matmul(start_position, est_corr)
-
-hedge = list(zip([start_position, np.linalg.eig(est_corr)[0]]))
-
-# So using out estimates how do we contruct a portfolio?
-np.matmul(est_cov, np.matmul(start_position, est_cov))
-
-np.matmul(np.matmul(est_cov, est_cov), start_position)
-
-np.linalg.inv(est_cov)
-np.matmul(start_position, np.linalg.inv(est_cov))
-np.linalg.eig(est_corr)[0]
-
-np.matmul(np.linalg.eig(est_corr)[1], start_position)
-np.matmul(np.linalg.inv(np.linalg.eig(est_corr)[1]), start_position)
-# pca = PCA(n_components=3)
-# pca.fit(df)
-# print(pca.explained_variance_ratio_)
-# pos = pd.DataFrame([start_position], columns = df.columns)
-# pca.transform(pos)
-
-# np.linalg.inv()
-hedge = np.array([1, 0, 0])
-
-moves_hedge = np.matmul(hedge, df.diff()[1:].T)
-
-total = start_position - hedge
-
-moves_total = np.matmul(total, df.diff()[1:].T)
-
-moves.var()
-moves_hedge.var()
-moves_total.var()
-
-hedge_cost = np.sum(hedge)/np.sum(start_position)
-hedge_ratio = 1 - moves_total.var() / moves.var()
-
-hedge_cost
-hedge_ratio
