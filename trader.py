@@ -70,16 +70,33 @@ class MarketMaker(Trader):
 
 
 # In theory the risk here should be generic function from its RISK MEASURE, but ok.
-def risk_minimizer(state: pd.DataFrame, parameters: dict) -> pd.DataFrame:
+def risk_minimizer(state: pd.DataFrame, parameters: dict, return_optimizer: bool=False):
+    # -> pd.DataFrame:
     # unpack internal parameters    
-    scale_risk = 0
+    scale_risk = 1
+    scale_cost = 1
+    scale_hedge = 1
+    trade_theshold = 0
+    method = None
     
     try:
         scale_risk = parameters['scale_risk']
     except:
         pass
     
-    method = None
+    try:
+        scale_cost = parameters['scale_cost']
+    except:
+        pass
+    try:
+        scale_hedge = parameters['scale_hedge']
+    except:
+        pass    
+    try:
+        trade_theshold = parameters['trade_theshold']
+    except:
+        pass
+    
     try:
         method = parameters['minimzer_method']
     except:
@@ -100,15 +117,23 @@ def risk_minimizer(state: pd.DataFrame, parameters: dict) -> pd.DataFrame:
     cols = list(cov.columns)
 
     # define loss function
-    def hedger_loss_func(hedge: np.array, position: np.array, covariance: np.array, hedge_cost, scale_risk: float):
+    def hedger_loss_func(hedge: np.array, position: np.array, covariance: np.array, hedge_cost: np.array, scale_risk: float):
         position = position + hedge
-        return np.matmul(position.T, np.matmul(covariance, position))*scale_risk + hedge_cost * np.abs(hedge)
+        return np.matmul(position.T, np.matmul(covariance, position))*scale_risk + scale_cost*np.sum(hedge_cost * np.abs(hedge))
+    
     # MINIMIZE
     optimizer = scipy.optimize.minimize(hedger_loss_func, x0 = w, args=(w, cov.values, hedge_cost, scale_risk), method=method) #, method='Nelder-Mead')
-    hedge = optimizer['x']
+    hedge = optimizer['x']*scale_hedge
     loss = optimizer['fun']
     # format trades
-    return pd.DataFrame([{'fx_cross': ccy, 'amount': amnt} for ccy, amnt in list(zip(cols, hedge)) if np.abs(amnt) > 0])
+    if return_optimizer:
+        return optimizer
+    
+    if not optimizer['success']:
+        return pd.DataFrame([], columns=['fx_cross', 'amount'])
+    
+    
+    return pd.DataFrame([{'fx_cross': ccy, 'amount': amnt} for ccy, amnt in list(zip(cols, hedge)) if np.abs(amnt) > trade_theshold])
     #return trades[np.abs(trades['amount']) > 0]
 
 

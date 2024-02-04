@@ -58,17 +58,26 @@ def plot_trader_ccypair_pnl(trader: Trader, currency_pair:str, market_data: pd.D
     plt.show()
     
 # PNL POSITION AND RISK
-def plot_pnl_position_risk(pnl_data: pd.DataFrame, position_log: pd.DataFrame) -> None:
-    df = pnl_data
-    pos = position_log.set_index('time').melt(ignore_index=False, var_name='currency', value_name='amount')
+def plot_pnl_position_risk(trader:Trader, market_data: pd.DataFrame, asset_names: list, scaling: dict={}) -> None:
+    #scaling = utils.convert_to_eur(pnl_data[fx_crosses].to_dict('records')[-1])
+    # asset names are used
+    df = trader.book.get_PnL(market_data=market_data)
+    #df = pnl_data
+    position_log = df[asset_names]
+    
+    if len(scaling.items()) > 0:
+        position_log = position_log * scaling
+    
+    pos = position_log.melt(ignore_index=False, var_name='currency', value_name='amount')
+    
 
     f, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(6, 4), sharex=True)
     p1 = sns.lineplot(data=df, ax=ax1, x="time", y='PnL')
     p1.ticklabel_format(style='plain', axis='y',useOffset=False)
-    p2 = sns.lineplot(data=df, ax=ax1, x='time', y='margin', drawstyle='steps-post')
+    p2 = sns.lineplot(data=df, ax=ax1, x='time', y='acc_margin', drawstyle='steps-post')
     # color gap between pnl and margin to highligh composition of pnl
-    ax1.fill_between(x=df.index, y1=df['PnL'], y2=df['margin'], where=df['PnL']>df['margin'], facecolor='green', alpha=0.3, step='post')
-    ax1.fill_between(x=df.index, y1=df['PnL'], y2=df['margin'], where=df['PnL']<df['margin'], facecolor='red', alpha=0.3, step='post')
+    ax1.fill_between(x=df.index, y1=df['PnL'], y2=df['acc_margin'], where=df['PnL']>df['acc_margin'], facecolor='green', alpha=0.3, step='post')
+    ax1.fill_between(x=df.index, y1=df['PnL'], y2=df['acc_margin'], where=df['PnL']<df['acc_margin'], facecolor='red', alpha=0.3, step='post')
 
     ax2.axhline(0, color='black', alpha=0.5)
     p3 = sns.lineplot(data=pos, ax=ax2, x='time', y='amount', hue='currency', drawstyle='steps-post')

@@ -13,10 +13,13 @@ class Book:
         # log the empty book
         self.position_log = []#[self.position.copy()]
         self.trade_log = []
+        self.margin_log = []
+        self.risk_log = []
 
     def get_book_at_time(self, time):
         # get latest book where #yeah we need latest and not ==
-        return [entry for entry in book.position_log if entry['time'] == time]
+        #return [entry for entry in book.position_log if entry['time'] == time]
+        pass
     
     def get_position(self):
         position = self.position.copy()
@@ -38,21 +41,38 @@ class Book:
         # save log in other bok
         target_book.log_position_entry()
     
-    def fx_trade(self, time, target_book:Book, fx_cross:str, fx_rate:float, base_amount:float):
+    def fx_trade(self, time, target_book:Book, fx_cross:str, fx_rate:float, base_amount:float, pay_margin: float=None):
         # base=+ amnt, term=+ -amnt * fx_rate
         # find base/term
         base = fx_cross[:3]
         term = fx_cross[-3:]
         self.trade(time, target_book, base, term, base_amount, base_amount * fx_rate)
-        # log in trade log        
+        # log in trade log
         self.log_trade_entry(time=time, fx_cross=fx_cross, fx_rate=fx_rate, base_amount=base_amount)
         target_book.log_trade_entry(time=time, fx_cross=fx_cross, fx_rate=fx_rate, base_amount=-base_amount)
+        # assign margin if any
+        if pay_margin is not None:
+            self.log_margin_entry(time=time, margin=-pay_margin)
+            target_book.log_margin_entry(time=time, margin=pay_margin)
+            
 
     def log_position_entry(self):
         self.position_log.append(self.position.copy())
-    
+        
     def get_position_log(self):
         return pd.DataFrame.from_dict(self.position_log)
+    
+    def log_margin_entry(self, time: float, margin: float):
+        self.margin_log.append({'time': time, 'margin': margin})
+        
+    def get_margin_log(self):
+        return pd.DataFrame.from_dict(self.margin_log)
+
+    def log_risk_entry(self, time: float, risk: float):
+        self.risk_log.append({'time': time, 'risk': risk})
+        
+    def get_risk_log(self):
+        return pd.DataFrame.from_dict(self.risk_log)
 
     def log_trade_entry(self, time, fx_cross:str, fx_rate:float, base_amount:float):
         self.trade_log.append({'time': time, 'fx_cross': fx_cross, 'amount': base_amount, 'fx_rate': fx_rate})
@@ -68,9 +88,25 @@ class Book:
     
     def get_PnL(self, market_data:pd.DataFrame):
         # record of all states       
-        log = self.get_position_log().drop_duplicates('time', keep='last') # this keeps latest record in case of several trades at same time
-        
+        log = self.get_position_log().drop_duplicates('time', keep='last')
         overview = market_data.join(log.set_index('time')).ffill().fillna(0)
+        
+        # add risk if any
+        if len(self.get_risk_log()) > 0:
+            risk_log = self.get_risk_log().drop_duplicates('time', keep='last')
+            overview = overview.join(risk_log.set_index('time')).ffill().fillna(0)
+        else:
+            overview['risk'] = 0.0
+        
+        if len(self.get_margin_log()) > 0:
+            margin_log = self.get_margin_log()
+            margin_log['acc_margin'] = margin_log['margin'].cumsum()
+            margin_log = margin_log.drop_duplicates('time', keep='last')
+            margin_log = margin_log.drop('margin', axis=1)
+            overview = overview.join(margin_log.set_index('time')).ffill().fillna(0)
+        else:
+            overview['acc_margin'] = 0.0
+            
         states = market_data.reset_index().to_dict('records')
 
         # get eur equivalent
