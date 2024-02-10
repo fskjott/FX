@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from collections.abc import Callable
-from FX.book import Book
+from book import Book
 
 class RiskMeasure:
     def __init__(self, measure_function: Callable[[dict], float]):

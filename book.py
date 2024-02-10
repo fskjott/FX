@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 
-import FX.Utils as utils
+import Utils as utils
 
 class Book:
     def __init__(self, asset_names:list):

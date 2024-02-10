@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import scipy
 from collections.abc import Callable
-from FX.book import Book
-from FX.risk import RiskMeasure
+from book import Book
+from risk import RiskMeasure
 
     
 class Trader:

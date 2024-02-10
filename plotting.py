@@ -3,21 +3,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import seaborn.objects as so
-from FX.book import Book
-from FX.trader import Trader
-import FX.Utils as utils
+from book import Book
+from trader import Trader
+import Utils as utils
 
-
-#df = pd.melt(df.reset_index(), id_vars='time', value_vars=list(df.columns))
-#sns.relplot(data=df, x="time", y="value", hue="variable")
-#plt.show()
 
 # plot XTX over time ?
 
 # PLOTS RELATED TO MARKET DATA
 
 def plot_market_dX(market_data: pd.DataFrame) -> None:
-    df = data.diff()[1:]
+    df = market_data.diff()[1:]
     sns.pairplot(df)
     plt.show()
 

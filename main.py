@@ -7,12 +7,12 @@ import seaborn as sns
 import seaborn.objects as so
 from tqdm import tqdm
 import scipy
-import FX.Utils as utils
-from FX.risk import RiskMeasure, variance_risk
-from FX.generator import Generator
-from FX.book import Book
-from FX.trader import Trader, RandomTrader, MarketMaker, risk_minimizer
-from FX.plotting import plot_trader_ccypair_pnl, plot_pnl_position_risk
+import Utils as utils
+from risk import RiskMeasure, variance_risk
+from generator import Generator
+from book import Book
+from trader import Trader, RandomTrader, MarketMaker, risk_minimizer
+from plotting import plot_trader_ccypair_pnl, plot_pnl_position_risk
 
 sns.set_theme()
 
