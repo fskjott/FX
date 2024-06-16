@@ -5,15 +5,15 @@ from collections.abc import Callable
 from book import Book
 from risk import RiskMeasure
 
-    
+
 class Trader:
     def __init__(self, book: Book):
         self.book = book
         # this dataframe contains past/desired trades to do
         self.trades=pd.DataFrame(columns=["time", "fx_cross", "amount"])
 
-    def get_reaction(self, state) -> pd.DataFrame:
-        pass
+    def get_reaction(self, state: pd.DataFrame) -> pd.DataFrame:
+        return self.strategy(state, self.internal_parameters)
 
     def assign_risk_measure(self, risk_measure: RiskMeasure) -> None:
         self.risk_measure = risk_measure
@@ -65,25 +65,28 @@ class RandomTrader(Trader):
 
 
 class MarketMaker(Trader):
-    def get_reaction(self, state: pd.DataFrame) -> pd.DataFrame:
-        return self.strategy(state, self.internal_parameters)
+    pass
 
+
+
+# STRATEGY I GUESS SHOULD BE A CLASS
 
 # In theory the risk here should be generic function from its RISK MEASURE, but ok.
 def risk_minimizer(state: pd.DataFrame, parameters: dict, return_optimizer: bool=False):
     # -> pd.DataFrame:
     # unpack internal parameters    
-    scale_risk = 1
-    scale_cost = 1
-    scale_hedge = 1
-    trade_theshold = 0
+    scale_risk = 1.0
+    scale_cost = 1.0
+    scale_hedge = 1.0
+    trade_theshold = 0.0
+    options = {}
+    tol = 10**(-15)
     method = None
     
     try:
         scale_risk = parameters['scale_risk']
     except:
         pass
-    
     try:
         scale_cost = parameters['scale_cost']
     except:
@@ -96,11 +99,19 @@ def risk_minimizer(state: pd.DataFrame, parameters: dict, return_optimizer: bool
         trade_theshold = parameters['trade_theshold']
     except:
         pass
-    
+    try:
+        options = parameters['options']
+    except:
+        pass
+    try:
+        tol = parameters['tol']
+    except:
+        pass
     try:
         method = parameters['minimzer_method']
     except:
         pass
+    
     # unpack
     market_data = state['market_data']
     position = state['position']
@@ -109,20 +120,25 @@ def risk_minimizer(state: pd.DataFrame, parameters: dict, return_optimizer: bool
     w = np.array([position[currency] for currency in market_data.columns])
     hedge_cost = np.array([hedge_spreads[currency] for currency in market_data.columns])
 
-    # only need data for the currency pairs we have positions in
-    # covariance matrix of dX
     cov = market_data[list(position.keys())].diff().cov()
     
     # save columns for later
     cols = list(cov.columns)
 
     # define loss function
-    def hedger_loss_func(hedge: np.array, position: np.array, covariance: np.array, hedge_cost: np.array, scale_risk: float):
+    def hedger_loss_func(hedge: np.array, position: np.array, covariance: np.array, hedge_cost: np.array, scale_risk: float, scale_cost: float):
         position = position + hedge
         return np.matmul(position.T, np.matmul(covariance, position))*scale_risk + scale_cost*np.sum(hedge_cost * np.abs(hedge))
     
     # MINIMIZE
-    optimizer = scipy.optimize.minimize(hedger_loss_func, x0 = w, args=(w, cov.values, hedge_cost, scale_risk), method=method) #, method='Nelder-Mead')
+    optimizer = scipy.optimize.minimize(
+        hedger_loss_func,
+        x0 = w * np.random.rand(), #randomized start
+        args=(w, cov.values, hedge_cost, scale_risk, scale_cost),
+        tol=tol,
+        options=options,
+        method=method)
+    
     hedge = optimizer['x']*scale_hedge
     loss = optimizer['fun']
     # format trades
@@ -135,6 +151,34 @@ def risk_minimizer(state: pd.DataFrame, parameters: dict, return_optimizer: bool
     
     return pd.DataFrame([{'fx_cross': ccy, 'amount': amnt} for ccy, amnt in list(zip(cols, hedge)) if np.abs(amnt) > trade_theshold])
     #return trades[np.abs(trades['amount']) > 0]
+
+
+
+def back_to_back(state: pd.DataFrame):
+    market_data = state['market_data']
+    position = state['position']
+    hedge_spreads = state['hedge_spreads']
+
+    return pd.DataFrame([{'fx_cross': ccy, 'amount': amnt} for ccy, amnt in position.items() if np.abs(amnt) > 0])
+
+
+def pca_b2b(state: pd.DataFrame):
+    market_data = state['market_data']
+    position = state['position']
+    hedge_spreads = state['hedge_spreads']
+    
+    # pca on cov?
+
+    return pd.DataFrame([{'fx_cross': ccy, 'amount': amnt} for ccy, amnt in position.items() if np.abs(amnt) > 0])
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":

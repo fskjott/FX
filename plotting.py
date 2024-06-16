@@ -13,13 +13,18 @@ import Utils as utils
 # PLOTS RELATED TO MARKET DATA
 
 def plot_market_dX(market_data: pd.DataFrame) -> None:
-    df = market_data.diff()[1:]
+    df = market_data.diff().iloc[1:]
     sns.pairplot(df)
     plt.show()
 
 
 # CREATE A FIGURE OF THREE PLOTS WITH MARKET RATE-TRADES, POSITON AND PNL
-def plot_trader_ccypair_pnl(trader: Trader, currency_pair:str, market_data: pd.DataFrame, asset_names: list[str]) -> None:
+def plot_trader_ccypair_pnl(trader: Trader, currency_pair:str, market_data: pd.DataFrame, asset_names: list[str], grace_period: int=None) -> None:
+    if grace_period is not None:
+        start = grace_period
+    else:
+        start = 0
+        
     trades = trader.book.get_trade_log()
     # trades
     trades = trades[trades['fx_cross'] == currency_pair]
@@ -40,6 +45,11 @@ def plot_trader_ccypair_pnl(trader: Trader, currency_pair:str, market_data: pd.D
 
     pnl = dummy_book.get_PnL(market_data=market_data)[np.concatenate([asset_names,["PnL"]])]
 
+    # remove grace period
+    pnl = pnl.iloc[start:]
+    market = market.iloc[start:]
+    trades = trades[trades['time'] >= min(pnl.index)]
+
     f, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(6, 4), sharex=True)
     p1 = sns.lineplot(data=market, ax=ax1, x="time", y=currency_pair)
     p1.ticklabel_format(style='plain', axis='y',useOffset=False)
@@ -54,10 +64,14 @@ def plot_trader_ccypair_pnl(trader: Trader, currency_pair:str, market_data: pd.D
     plt.show()
     
 # PNL POSITION AND RISK
-def plot_pnl_position_risk(trader:Trader, market_data: pd.DataFrame, asset_names: list, scaling: dict={}) -> None:
+def plot_pnl_position_risk(trader:Trader, market_data: pd.DataFrame, asset_names: list, scaling: dict={}, grace_period: int=None) -> None:
+    if grace_period is not None:
+        start = grace_period
+    else:
+        start = 0
     #scaling = utils.convert_to_eur(pnl_data[fx_crosses].to_dict('records')[-1])
     # asset names are used
-    df = trader.book.get_PnL(market_data=market_data)
+    df = trader.book.get_PnL(market_data=market_data).iloc[start:]
     #df = pnl_data
     position_log = df[asset_names]
     

@@ -7,6 +7,7 @@ import seaborn as sns
 import seaborn.objects as so
 from tqdm import tqdm
 import scipy
+from sklearn.decomposition import PCA
 import Utils as utils
 from risk import RiskMeasure, variance_risk
 from generator import Generator
@@ -26,7 +27,7 @@ sns.set_theme()
 dt = 0.001  # Time step
 num_steps = 2000  # Number of steps
 vol = 0.1
-grace_period = 1000
+grace_period = 500
 time_line = np.arange(0, num_steps * dt, dt)[grace_period:]
 
 # volatilities * dt * N(t) is the expected distribution
@@ -68,6 +69,7 @@ asset_names = list(value_dict)
 start_values = list(value_dict.values())
 
 
+
 ###################################################################################
 
 # Generate X different assets with correlation matrix W
@@ -75,7 +77,7 @@ start_values = list(value_dict.values())
 generator = Generator(fx_crosses)
 data = generator.simulate_rates(start_rates, vol, dt, num_steps, correlation_matrix)
 
-# np.percentile(data['EURUSD'].diff()[1:], 97.5)
+# np.percentile(data['EURUSD'].diff().iloc[1:], 97.5)
 
 
 # Create a naive "client"
@@ -87,11 +89,13 @@ market_maker = MarketMaker(Book(asset_names))
 market_maker.assign_risk_measure(risk_measure=RiskMeasure(variance_risk))
 
 market_maker.assign_strategy(risk_minimizer)
-market_maker.set_internal_parameters({'scale_risk': 10**2,
-                                      'scale_cost': 10**2,
+market_maker.set_internal_parameters({'scale_risk': 1.0,
+                                      'scale_cost': 1.0,
                                       'scale_hedge': 1.0,
-                                      'minize_method': None, #'Nelder-Mead' for simplex
-                                      'trade_theshold': .05})
+                                      'minimzer_method': 'SLSQP', #'Nelder-Mead' for simplex
+                                      'options': {'maxiter': 150},
+                                      'tol': 10**(-15),
+                                      'trade_theshold': 0.05})
 
 # Create world-book to dump risk into
 world_maker = MarketMaker(Book(asset_names))
@@ -165,28 +169,39 @@ for time in tqdm(time_line):
 ##########################################################################
 
 
-plot_pnl_position_risk(trader=market_maker, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]))
+plot_pnl_position_risk(trader=market_maker, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]), grace_period=grace_period)
 # for hedger lets plot his portfolio variance/risk
 
-
-plot_pnl_position_risk(trader=random_trader, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]))
-plot_pnl_position_risk(trader=world_maker, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]))
+plot_pnl_position_risk(trader=random_trader, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]), grace_period=grace_period)
+plot_pnl_position_risk(trader=world_maker, market_data=market_data, asset_names=asset_names, scaling=utils.convert_to_eur(market_data.to_dict('records')[-1]), grace_period=grace_period)
 
 # Lets compare trader with world to see the risk split
-#df = market_maker.book.get_PnL(market_data=market_data)
-plot_trader_ccypair_pnl(market_maker, 'EURSEK', market_data, asset_names=asset_names)
-plot_trader_ccypair_pnl(world_maker, 'EURSEK', market_data, asset_names=asset_names)
+df = market_maker.book.get_PnL(market_data=market_data)
+plot_trader_ccypair_pnl(market_maker, 'EURSEK', market_data, asset_names=asset_names, grace_period=grace_period)
+plot_trader_ccypair_pnl(world_maker, 'EURSEK', market_data, asset_names=asset_names, grace_period=grace_period)
 
 
 
 
 
 
-# STOP HERE BELOW IS TO TINKER WITH OPTIMIZER
+
+
+
+
+
+
+##########################################################################
+#
+#
+#
+#   STOP HERE BELOW IS TO TINKER WITH OPTIMIZER
+#
+#
+#
+##########################################################################
 
 # INVESTIGATE WHY THIS OPTIMIZER ISNT HAPPY
-
-
 
 
 market_data = data
@@ -199,11 +214,16 @@ market_maker = MarketMaker(Book(asset_names))
 market_maker.assign_risk_measure(risk_measure=RiskMeasure(variance_risk))
 
 market_maker.assign_strategy(risk_minimizer)
-market_maker.set_internal_parameters({'scale_risk': 10**0,
-                                      'scale_cost': 10**0,
+
+market_maker.set_internal_parameters({'scale_risk': 1.0,
+                                      'scale_cost': 1.0,
                                       'scale_hedge': 1.0,
-                                      'minize_method': 'Newton-CG', #'Nelder-Mead' for simplex
+                                      'minimzer_method': 'SLSQP', #'Nelder-Mead' for simplex
+                                      'options': {'maxiter': 200},
+                                      'tol': 10**(-15),
                                       'trade_theshold': .05})
+
+
 
 current_state = market_data.reset_index().to_dict('records')[-1]
 hedge_spreads = {key:hedge_spread*current_state[key] for key in list(current_state.keys())[1:]}
@@ -229,7 +249,42 @@ state = {'position': utils.currency_positions_to_pairs(positions=market_maker.bo
 
 market_maker.get_reaction(state=state)
 
-risk_minimizer(state=state, parameters=market_maker.internal_parameters, return_optimizer=True)
+x = risk_minimizer(state=state, parameters=market_maker.internal_parameters, return_optimizer=True)
+
+
+# LETS GET THIS MINIMIZER TO WORK
+
+position = state['position']
+hedge_spreads = state['hedge_spreads']
+
+w = np.array([position[currency] for currency in market_data.columns])# * 1000000.0
+hedge_cost = np.array([hedge_spreads[currency] for currency in market_data.columns])
+
+# only need data for the currency pairs we have positions in
+# covariance matrix of dX
+cov = market_data[list(position.keys())].diff().cov()
+
+# save columns for later
+cols = list(cov.columns)
+
+hedge = w * np.random.rand()
+
+# define loss function
+def hedger_loss_func(hedge: np.array, position: np.array, covariance: np.array, hedge_cost: np.array):
+    position = position + hedge
+    return np.matmul(position.T, np.matmul(covariance, position)) + np.sum(hedge_cost * np.abs(hedge))
+
+
+
+hedger_loss_func(hedge, w, cov, hedge_cost)
+# MINIMIZE
+optimizer = scipy.optimize.minimize(hedger_loss_func, x0 = 0.5*w, args=(hedge, cov.values, hedge_cost), tol=10**(-15), options={"maxiter": 150}, method="SLSQP")
+hedge = optimizer['x']
+loss = optimizer['fun']
+
+
+
+
 
 
 
@@ -327,10 +382,55 @@ plt.show()
 # derived class from pd.DataFrame? which basically checks columns are right and then returns pd.DataFrame()
 
 
+# PCA
+market_data
+
+cov = market_data[list(position.keys())].diff().corr()
+
+df = market_data[list(position.keys())].diff().iloc[1:]
+
+pca = PCA(n_components=2)
+pca.fit(df)
+pca.explained_variance_ratio_
+
+# what does an output of 1 of "assets" look like back in real terms:
+a = np.array([[1, 0]])
+pca.inverse_transform(a)
+
+pca.transform([[0,0,1]])
+
+df_pca = pd.DataFrame(pca.transform(df), columns=["a","b"])
+
+# example position
+random_trader.trades.iloc[0]
+
+
+# SEE HOW RISK LOOKS DIFFERENT
+
+# CONSTRUCT A STRATEGY THAT BACK TO BACKS PCA RISK
+
+# PLOT PCA THINGS - LOOK FOR INSPI
+
+# DO AN EXPERIMENT WITH TWO MARKET MAKERS, ONE B2B AND ONE PCA B2B. COMPARE RISKS AND COMPARE TOTAL SPENT ON HEDGING
 
 
 
+# pca on market data diffs or pca on covs
 
+a = 0.1
+correlation_matrix = np.array([[1, a,],[a, 1]])
+generator = Generator(["A", "B"])
+df = generator.simulate_rates(initial_levels=[1.05, 2.09], volatilities=vol, dt=dt, num_steps=10000, correlation_matrix=correlation_matrix)
+
+df.diff().corr() * (dt*vol)**2
+df.diff().cov()
+
+rho = np.arange(0.1, 0.98, 0.001)
+
+cov = data.diff().cov()
+w = np.array([1, -1])
+hedge =np.sum(np.abs(w))
+risk = np.matmul(w.T, np.matmul(cov, w))
 
 # list(dict(market_maker.book.get_trade_log().groupby('fx_cross').sum()['amount']).values())
 
